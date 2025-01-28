@@ -1,9 +1,10 @@
-from django.shortcuts import render
+from django.http import HttpResponse
+from django.shortcuts import get_object_or_404, redirect, render
 from django.views.generic import ListView, DetailView
 from datetime import timedelta
 from django.utils import timezone
 
-from newspaper_app.models import Category, Contact, Post, Tag
+from newspaper_app.models import Category, Comment, Contact, Post, Tag
 
 class HomePageView(ListView):
     model = Post
@@ -31,9 +32,8 @@ class HomePageView(ListView):
 
         one_week_ago = timezone.now() - timedelta(days=7)
         context["weekly_top_posts"] = Post.objects.filter(
-    published_at__isnull=False, status="active", published_at__gte=timezone.now() - timedelta(days=14)
-).order_by("-published_at", "-views_count")[:7]
-
+            published_at__isnull=False, status="active", published_at__gte=one_week_ago
+        ).order_by("-published_at", "-views_count")[:7]
 
         context["recent_posts"] = Post.objects.filter(
             published_at__isnull=False, status="active"
@@ -61,8 +61,21 @@ class PostListView(ListView):
         return Post.objects.filter(
             published_at__isnull=False, status="active"
         ).order_by("-published_at")
+     
+class AboutPageView(ListView):
+    model = Post
+    template_name = "aznews/about.html"
+    context_object_name = "posts"
+    # queryset = Post.objects.filter(
+    #     published_at_isnull=False, status="active"
+    # ).order_by("-publised_at")[:5]
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)    
 
+        context["trending_posts"] = Post.objects.filter(
+            published_at__isnull=False, status="active"
+        ).order_by("-views_count")[:3]
 
 
 class PostDetailView(DetailView):
@@ -74,14 +87,13 @@ class PostDetailView(DetailView):
         query = super().get_queryset()
         query = query.filter(published_at__isnull=False, status="active")
         return query
-    
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         obj = self.get_object()
         obj.views_count += 1
         obj.save()
 
-        # 7 => 1, 2, 3, 4, 5, 6 => 6, 5, 4, 3, 2, 1
         context["previous_post"] = (
             Post.objects.filter(
                 published_at__isnull=False, status="active", id__lt=obj.id
@@ -89,8 +101,6 @@ class PostDetailView(DetailView):
             .order_by("-id")
             .first()
         )
-
-        # 8, 9, 10 ....
         context["next_post"] = (
             Post.objects.filter(
                 published_at__isnull=False, status="active", id__gt=obj.id
@@ -98,5 +108,24 @@ class PostDetailView(DetailView):
             .order_by("id")
             .first()
         )
-
+        context["comments"] = Comment.objects.filter(post=obj).order_by("-created_at")
         return context
+
+    def post(self, request, *args, **kwargs):
+        """Handle comment form submission."""
+        obj = self.get_object()  
+        comment_text = request.POST.get("comment")
+        name = request.POST.get("name")
+        email = request.POST.get("email")
+
+        if comment_text and name and email:
+            Comment.objects.create(
+                post=obj,
+                comment=comment_text,
+                name=name,
+                email=email
+            )
+            return redirect("post-detail", pk=obj.pk)
+        context = self.get_context_data()
+        context["error"] = "Please fill out all required fields."
+        return self.render_to_response(context)
