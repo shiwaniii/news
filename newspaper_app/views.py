@@ -1,5 +1,5 @@
 from django.shortcuts import render
-from django.views.generic import ListView
+from django.views.generic import ListView, DetailView
 from datetime import timedelta
 from django.utils import timezone
 
@@ -61,3 +61,42 @@ class PostListView(ListView):
         return Post.objects.filter(
             published_at__isnull=False, status="active"
         ).order_by("-published_at")
+
+
+
+
+class PostDetailView(DetailView):
+    model = Post
+    template_name = "aznews/detail/detail.html"
+    context_object_name = "post"
+
+    def get_queryset(self):
+        query = super().get_queryset()
+        query = query.filter(published_at__isnull=False, status="active")
+        return query
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        obj = self.get_object()
+        obj.views_count += 1
+        obj.save()
+
+        # 7 => 1, 2, 3, 4, 5, 6 => 6, 5, 4, 3, 2, 1
+        context["previous_post"] = (
+            Post.objects.filter(
+                published_at__isnull=False, status="active", id__lt=obj.id
+            )
+            .order_by("-id")
+            .first()
+        )
+
+        # 8, 9, 10 ....
+        context["next_post"] = (
+            Post.objects.filter(
+                published_at__isnull=False, status="active", id__gt=obj.id
+            )
+            .order_by("id")
+            .first()
+        )
+
+        return context
